@@ -1,6 +1,7 @@
 import io
 import base64
 import threading
+import traceback
 
 import scipy.io as sio
 
@@ -17,8 +18,9 @@ from PyQt5.QtWebEngineWidgets import *
 from PyQt5 import QtWebEngineWidgets, QtCore, QtWidgets
 
 from dmd.decomposition import Decomposition
-from dmd.utils import *
 from dmd.plotting import *
+
+from utils import *
 
 
 class Dashboard(QWebEngineView):
@@ -29,7 +31,8 @@ class Dashboard(QWebEngineView):
     def __init__(self):
         """ Constructor. """
 
-        QWebEngineView.__init__(self)
+        # Call to superclass
+        super().__init__()
 
         # Display full screen
         self.showMaximized()
@@ -313,6 +316,7 @@ class Dashboard(QWebEngineView):
                                     disabled = False
 
                 except Exception as e:
+                    logging.error(traceback.format_exc())
                     message = str(e)
                     error = True
 
@@ -454,7 +458,7 @@ class Dashboard(QWebEngineView):
                 if self.match_group is None:
 
                     logging.info("Computing spectre of dynamical modes")
-                    s = Spectre(_filter_spectre())
+                    s = Spectre(*_filter_spectre())
                     return s.figure()
 
                 else:
@@ -485,7 +489,7 @@ class Dashboard(QWebEngineView):
 
                 logging.info("Computing time series activation of dominant modes")
 
-                t = TimePlot(_filter_time())
+                t = TimePlot(*_filter_time())
 
                 return t.figure(nom + 1)
 
@@ -591,30 +595,31 @@ class Dashboard(QWebEngineView):
                                                                              's' if len(files) > 1 else '',
                                                                              sampling_time))
 
-            dcp = Decomposition()
-            d = None
+            data = []
 
             for content, name in zip(contents, files):
-                type, string = content.split(',')
+
+                _, string = content.split(',')
 
                 mat = io.BytesIO(base64.b64decode(string))
 
-                data = sio.loadmat(mat)
+                matfile = sio.loadmat(mat)
 
-                key = list(data.keys())[-1]
-                if key[:2] != '__':
-                    d = data[key]
-                    logging.info("Extracting matrix from file {} from key {}".format(name, key))
-                else:
-                    logging.error(".mat file incorrectly formatted.")
+                for key in matfile.keys():
+                    if key[:2] != '__':
+                        d = matfile[key]
+                        logging.info("Extracted matrix from file {} from key {}".format(name, key))
+                        continue
 
                 if d is None:
                     logging.error("Invalid .mat file, no matrices inside.")
 
-                dcp.add_data(d, sampling_time)
+                data.append(d)
 
+            logging.info("Extracting information from file...")
 
-            dcp.run()
+            dcp = Decomposition(data=data, sampling_time=sampling_time)
+
             self.atlas = dcp.atlas
 
             return dcp
@@ -624,52 +629,29 @@ class Dashboard(QWebEngineView):
 
             logging.info("Filtering Spectre data")
 
-            df1 = pd.DataFrame({'Mode': self.dcp1.df['mode'], 'Value': np.abs(self.dcp1.df['value']),
-                                'Group': ['Group 1' if self.match_group is None else 'Reference' for i in range(self.dcp1.df.shape[0])]}) \
-                if self.dcp1 is not None else None
-
             if self.dcp2 is not None:
-                df2 = pd.DataFrame({'Mode': self.dcp2.df['mode'], 'Value': np.abs(self.dcp2.df['value']),
-                                    'Group': ['Group 2' for i in range(self.dcp2.df.shape[0])]})
+                return self.dcp1.df, ['Group 1', 'Group 2'], self.dcp2.df
             elif self.match_group is not None:
-                df2 = pd.DataFrame({'Mode': self.match_df['mode'], 'Value': np.abs(self.match_df['value']),
-                                    'Group': ['Match' for i in range(self.match_df.shape[0])]})
+                return self.dcp1.df, ['Reference', 'Match'], self.match_group.df
             else:
-                df2 = None
-
-            return pd.concat([df1, df2])
+                return self.dcp1.df, [''], None
 
         def _filter_time():
             """ Filter df for Timeplot Figure. """
 
             logging.info("Filtering TimePlot data")
 
-            df1 = pd.DataFrame({'Mode': self.dcp1.df['mode'], 'Activity': self.dcp1.df['activity'],
-                                'Group': ['Group 1' for i in range(self.dcp1.df.shape[0])]}) \
-                if self.dcp1 is not None else None
-            df2 = pd.DataFrame({'Mode': self.dcp2.df['mode'], 'Activity': self.dcp2.df['activity'],
-                                'Group': ['Group 2' for i in range(self.dcp2.df.shape[0])]}) \
-                if self.dcp2 is not None else None
-
-            return pd.concat([df1, df2])
+            return self.dcp1.df, self.dcp2.df if self.dcp2 is not None else None
 
         def _filter_radar():
             """ Filter df for Radar Figure. """
 
             logging.info("Filtering Radar data")
 
-            df1 = pd.DataFrame({'mode': self.dcp1.df['mode'], 'group': [1 for i in range(self.dcp1.df.shape[0])],
-                                'strength_real': self.dcp1.df['strength_real'], 'strength_imag': self.dcp1.df['strength_imag']}) \
-                if self.dcp1 is not None else None
-            df2 = pd.DataFrame({'mode': self.dcp2.df['mode'], 'group': [2 for i in range(self.dcp2.df.shape[0])],
-                                'strength_real': self.dcp2.df['strength_real'], 'strength_imag': self.dcp2.df['strength_imag']}) \
-                if self.dcp2 is not None else None
+            if self.dcp2 is not None:
+                assert self.dcp1.atlas == self.dcp2.atlas
 
-            networks = self.dcp1.df['networks'][0] if self.dcp1 is not None else None
-            if networks is None:
-                networks = self.dcp2.df['networks'][0] if self.dcp2 is not None else None
-
-            return pd.concat([df1, df2]), networks
+            return self.dcp1.df, self.dcp1.atlas, self.dcp2.df if self.dcp2 is not None else None
 
         def _filter_brain(order):
             """
@@ -684,10 +666,7 @@ class Dashboard(QWebEngineView):
 
             logging.info("Filtering Brain data for Mode {}".format(order))
 
-            mode1 = self.dcp1.df.loc[order - 1][['intensity', 'conjugate']] if self.dcp1 is not None else None
-            mode2 = self.dcp2.df.loc[order - 1][['intensity', 'conjugate']] if self.dcp2 is not None else None
-
-            return self.atlas, mode1, mode2, order
+            return self.dcp1.df, order, self.dcp1.atlas.coords_2d, self.dcp2.df if self.dcp2 is not None else None
 
         def _format_table(df):
             """
