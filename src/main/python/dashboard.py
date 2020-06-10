@@ -752,7 +752,7 @@ class Dashboard(QWebEngineView):
                 # ########### #
                 # RIGHT PANEL #
                 # ########### #
-                html.Div(className="col-3", children=[
+                html.Div(className="col-4", children=[
                     # ####################### #
                     # HEADER + FILE SELECTION
                     # ####################### #
@@ -833,7 +833,7 @@ class Dashboard(QWebEngineView):
                 # ########### #
                 # RIGHT PANEL #
                 # ########### #
-                html.Div(className="col-9", children=[
+                html.Div(className="col-8", children=[
                     # ########## #
                     # UPLOAD ROW
                     # ########## #
