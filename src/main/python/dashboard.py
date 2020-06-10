@@ -3,7 +3,9 @@ import base64
 import threading
 import traceback
 
+import numpy as np
 import scipy.io as sio
+import pandas as pd
 
 import dash
 from dash_table import DataTable
@@ -17,8 +19,8 @@ from PyQt5.QtCore import *
 from PyQt5.QtWebEngineWidgets import *
 from PyQt5 import QtWebEngineWidgets, QtCore, QtWidgets
 
-from dmd.decomposition import Decomposition
-from dmd.plotting import *
+from nidmd import Decomposition, Brain, Spectre, TimePlot, Radar
+
 
 from utils import *
 
@@ -115,15 +117,15 @@ class Dashboard(QWebEngineView):
                 return None
 
         @self.app.callback([
-            Output('upload-1-div', 'className'),
-            Output('upload-1', 'style'),
-            Output('upload-2', 'style'),
+            Output('upload-1-div', 'style'),
+            Output('upload-2-div', 'style'),
             Output('selected-files-group-2-t', 'style'),
             Output('selected-files-group-2-p', 'style'),
             Output('selected-files-group-1-t', 'children'),
             Output('selected-files-group-2-t', 'children'),
             Output('upload-1', 'children'),
-            Output('upload-2', 'children')
+            Output('upload-2', 'children'),
+            Output('approx-deg-div', 'style')
         ], [
             Input('setting', 'value')
         ])
@@ -134,22 +136,22 @@ class Dashboard(QWebEngineView):
             hide = dict(display="none")
 
             style = dict(height="60px", lineHeight="60px", borderWidth="1px", borderStyle="dashed", borderRadius="5px",
-                         textAlign="center", margin="10px")
+                         textAlign="center", margin="10px", padding="auto", width="90%")
 
             if value is None:
-                return "row", hide, hide, hide, hide, "Selected files", \
-                       None, None, None
+                return hide, hide, hide, hide, "Selected files", \
+                       None, None, None, hide
             elif value == 1:  # Analysis
-                return "col-12", style, hide, hide, hide, "Selected files", None, \
-                       html.Div(['Drag and Drop or ', html.A('Select Files')]), None
+                return style, hide, hide, hide, "Selected files", None, \
+                       html.Div(['Drag and Drop or ', html.A('Select Files')]), None, hide
             elif value == 2:  # Comparison
-                return "col-6", style, style, show, show, "Group 1", "Group 2", \
+                return style, style, show, show, "Group 1", "Group 2", \
                        html.Div(['Group 1: Drag and Drop or ', html.A('Select Files')]), \
-                       html.Div(['Group 2: Drag and Drop or ', html.A('Select Files')])
+                       html.Div(['Group 2: Drag and Drop or ', html.A('Select Files')]), hide
             elif value == 3:  # Matching Modes
-                return "col-6", style, style, show, show, "Reference Group", "Match Group",  \
+                return style, style, show, show, "Reference Group", "Match Group",  \
                        html.Div(['Reference Group: Drag and Drop or ', html.A('Select Files')]), \
-                       html.Div(['Match Group: Drag and Drop or ', html.A('Select Files')])
+                       html.Div(['Match Group: Drag and Drop or ', html.A('Select Files')]), show
 
         @self.app.callback([
             Output('table-1-tab', 'label'),
@@ -162,37 +164,24 @@ class Dashboard(QWebEngineView):
             if setting is None:
                 raise PreventUpdate
             elif setting == 1:  # Analysis
-                return 'Data', ''
+                return 'Modes', ''
             elif setting == 2:  # Comparison
                 return 'Group 1', 'Group 2'
             elif setting == 3:  # Mode Matching
                 return 'Reference', 'Match'
 
         @self.app.callback(
-            [Output('description', 'children'),
-             Output('warning', 'children')],
-            [Input('setting', 'value')]
-        )
-        def update_description(value):
-            """ Descriptions. """
-
-            if value is None:
-                return "Based on 'Dynamic mode decomposition of resting-state and task fMRI' by Casorso et al, \
-                        the dmd dashboard allows you to analyse, compare, and display the decomposition of your \
-                        fMRI time-series data. Click on the radio buttons below to get started!", ""
-            elif value == 1:  # Analysis
-                return "Analysis: this setting allows you to analyse the decomposition of one or multiple time-series \
-                       files. Simply input the sampling time, select the one or multiple files you want to analyse, \
-                       and the rest is done automatically.", ""
-            elif value == 2:  # Comparison
-                return "Comparison: this setting allows you to compare the decomposition of two groups of one or \
-                       multiple time-series files. Simply input the sampling time, select the groups of one or \
-                       multiple files you want to compare, and the rest is done automatically.", ""
-            elif value == 3:  # Matching Modes
-                return "Matching Modes: this setting allow you to match one group's modes to anothers. The selection \
-                        toolbar on the left will take the reference group files, while the one on the right will have \
-                        its time-series data matched to the spatial modes of the reference group.", \
-                       "Please upload the Reference group before the Match group."
+            Output('help-modal', 'is_open')
+        , [
+            Input('help', 'n_clicks')
+        ], [
+            State('help-modal', 'is_open')
+        ])
+        def toggle_modal(n, open):
+            """ Toggle help modal """
+            if n:
+                return not open
+            return open
 
         @self.app.callback([
             Output('animated-progress-1', 'style'),
@@ -240,9 +229,10 @@ class Dashboard(QWebEngineView):
         ], [
             State('upload-1', 'filename'),
             State('upload-2', 'filename'),
-            State('setting', 'value')
+            State('setting', 'value'),
+            State('approx-deg', 'value')
         ])
-        def upload(contents1, contents2, time, names1, names2, setting):
+        def upload(contents1, contents2, time, names1, names2, setting, approx_deg):
 
             df1 = None
             df2 = None
@@ -262,7 +252,8 @@ class Dashboard(QWebEngineView):
                 style_data=dict(fontFamily="Helvetica"),
                 style_data_conditional=[{'if': dict(row_index="odd"),  # if is a keyword
                                         **dict(backgroundColor="rgb(248, 248, 248)")}],
-                style_as_list_view=True
+                style_as_list_view=True,
+                style_table={'height': '90%', 'overflowY': 'auto'}
             )
 
             columns = [dict(name='#', id='mode'), dict(name='Value', id='value'),
@@ -309,7 +300,11 @@ class Dashboard(QWebEngineView):
                                 if self.dcp1 is None:
                                     raise ImportError("Please upload Reference group before Match group.")
                                 else:
-                                    self.match_df, self.match_x, self.match_y = self.dcp1.compute_match(self.match_group, 20)
+
+                                    no_modes = int(approx_deg / 100.0 * self.match_group.atlas.size)
+
+                                    self.match_df, self.match_x, self.match_y = self.dcp1.compute_match(self.match_group,
+                                                                                                         no_modes)
                                     match_df = self.match_df.copy()
 
                                     tab2 = _create_table(match_df, id="table-2", columns=columns, config=table_config)
@@ -397,7 +392,7 @@ class Dashboard(QWebEngineView):
                         message += "Match group is loading. Please wait. "
                         error = True
                 elif self.atlas is None:
-                    message += "Parsing unsuccessful, no atlas found. Be sure to use a .mat file. "
+                    message += "Parsing unsuccessful, no atlas found. "
                     error = True
             else:
                 message += "No setting chosen. "
@@ -407,6 +402,7 @@ class Dashboard(QWebEngineView):
                 message += "Check log for more info."
             else:
                 self.valid = True
+                collapse_open = True
 
             hide = dict(display="none")
 
@@ -727,124 +723,164 @@ class Dashboard(QWebEngineView):
         logging.info("Setting Application Layout")
 
         return html.Div(id="app-layout", children=[
-            html.Div(id="dummy", style=dict(display="none")),
-            # ####################### #
-            # HEADER + FILE SELECTION
-            # ####################### #
+            dbc.Modal(id="help-modal", is_open=True, children=[
+                dbc.ModalHeader("Welcome to the Dynamic Mode Decomposition Dashboard!"),
+                dbc.ModalBody(children=[
+                    html.P("Based on 'Dynamic mode decomposition of resting-state and task fMRI' by Casorso et al, \
+                            the dmd dashboard allows you to analyse, compare, and display the dynamic decomposition of \
+                            fMRI time-series data."),
+                    html.H5("Analysis"),
+                    html.P("Analyse the decomposition of one or multiple time-series files. Simply input the sampling \
+                            time, select the wanted file(s) and the amount of modes you want to have visualisations \
+                            for."),
+                    html.H5("Comparison"),
+                    html.P("The comparison setting allows you to analyse two different groups of file(s) and visualize \
+                            the similarities and/or differences in their decompositions."),
+                    html.H5("Match Modes"),
+                    html.P("The Match Modes setting allows you to match a group's decomposition to a reference group. \
+                            For this setting, it is important to select the Reference group before the Match group. "
+                           "As the mode matching is a heavy computational task, we allow you to approximate the top "
+                           "10 modes using an approximation degree that should be between 0 and 100. Please note that "
+                           "the higher the approximation degree, the longer the program will run. \
+                            Furthermore, please identify the approximation degree before uploading the Match data."),
+                    html.P("This pop-up remains accessible by clicking on the Help button.", className="mt-3"),
+                    html.P("If you have any questions, do not hesitate to open an issue on the Github repository or contact \
+                            me directly by email: arnaud.dhaene@epfl.ch", className="mt-5")
+                ]),
+            ]),
             html.Div(className="row", children=[
-                # HEADER = TITLE + DESCRIPTION + SETTING
-                html.Div(className="col-5", style={'margin-top': '25px'}, children=[
-                    dbc.FormGroup(row=True, children=[
-                        html.Div(className="ml-5 mt-2", children=[
-                            # TITLE
-                            html.H4("Dynamic Mode Toolbox"),
-                            # DESCRIPTION
-                            html.P(id="description"),
-                            html.P(id="warning", className="text-danger mt-1"),
-                        ]),
-                        dbc.Col(className="ml-5 mt-4", children=[
-                            # SETTING
-                            dbc.RadioItems(id="setting", options=[
-                                    {"label": "Analysis", "value": 1},
-                                    {"label": "Comparison", "value": 2},
-                                    {"label": "Mode Matching", "value": 3}
+                # ########### #
+                # RIGHT PANEL #
+                # ########### #
+                html.Div(className="col-3", children=[
+                    # ####################### #
+                    # HEADER + FILE SELECTION
+                    # ####################### #
+                    # HEADER = TITLE + DESCRIPTION + SETTING
+                    html.Div(style={'margin-top': '25px'}, children=[
+                        dbc.FormGroup(row=True, children=[
+                            html.Div(className="ml-5 mt-2", children=[
+                                # TITLE
+                                html.H5("Dynamic Mode Decomposition Dashboard"),
+                                html.P("Access a short description of the dashboard by clicking on 'Help'. \
+                                        A more detailed description can be found in the repository's README."),
+                                # DESCRIPTION
+                                dbc.Button("Help", id="help", className="ml-auto"),
+                            ]),
+                            dbc.Col(className="ml-5 mt-4", children=[
+                                # SETTING
+                                dbc.Label("Setting", className="mt-2"),
+                                dbc.RadioItems(id="setting", options=[
+                                        {"label": "Analysis", "value": 1},
+                                        {"label": "Comparison", "value": 2},
+                                        {"label": "Mode Matching", "value": 3}
+                                ])
                             ])
                         ])
-                    ])
-                ]),
-                # FILE SELECTION
-                html.Div(className="col-7", children=[
-                    html.Div(className="col-12 mt-2 mb-2 mr-2 ml-2", id="file-selection-card", children=[
-                        dbc.Card(dbc.CardBody(children=[
-                            # TITLE
-                            html.H5("Selection", className="card-title"),
-                            html.Div(className="row", children=[
-                                # SELECTION INPUT
-                                html.Div(className="col-6", children=[
-                                    dbc.FormGroup(children=[
-                                        dbc.Label("Sampling Time (seconds)", className="mt-2"),
-                                        dbc.Input(id="sampling-time", type="number", placeholder="0.72",
-                                                  value=0.72, className="col-6"),
-                                        dbc.Label("Number of modes to plot", className="mt-2"),
-                                        dbc.Input(id="number-of-modes", type="number", placeholder="5",
-                                                  value=5, className="col-6"),
-                                        dbc.Checklist(className="mt-2", id="imag-setting", value=[], switch=True,
-                                                      options=[dict(label="Plot Imaginary Values", value=1)]),
+                    ]),
+                    # FILE SELECTION
+                    html.Div(className="col-12", children=[
+                        html.Div(className="mt-2 mb-2 mr-2 ml-2", id="file-selection-card", children=[
+                            dbc.Card(dbc.CardBody(children=[
+                                # TITLE
+                                html.H5("Selection", className="card-title"),
+                                html.Div(children=[
+                                    # SELECTION INPUT
+                                    html.Div(children=[
+                                        dbc.FormGroup(children=[
+                                            dbc.Label("Sampling Time (seconds)", className="mt-2"),
+                                            dbc.Input(id="sampling-time", type="number", placeholder="0.72",
+                                                      value=0.72),
+                                            dbc.Label("Number of modes to plot", className="mt-2"),
+                                            dbc.Input(id="number-of-modes", type="number", placeholder="5",
+                                                      value=5),
+                                            html.Div(id="approx-deg-div", children=[
+                                                dbc.Label("Approximation degree", className="mt-2"),
+                                                dbc.Input(id="approx-deg", type="number", placeholder="5",
+                                                          value=5)
+                                            ]),
+                                            dbc.Checklist(className="mt-2", id="imag-setting", value=[], switch=True,
+                                                          options=[dict(label="Plot Imaginary Values", value=1)]),
+                                        ]),
+                                    ]),
+                                    # SELECTED FILES
+                                    html.Div(children=[
+                                        dbc.Label(id="selected-files-group-1-t"),
+                                        html.P(id="selected-files-group-1-p"),
+                                        html.Div(className="mb-2", id="animated-progress-1-div", children=[
+                                            dbc.Progress(value=80, id="animated-progress-1", striped=True,
+                                                         animated="animated", style={'display': 'none'})
+                                        ]),
+                                        dbc.Label(id="selected-files-group-2-t"),
+                                        html.P(id="selected-files-group-2-p"),
+                                        html.Div(id="animated-progress-2-div", className="mb-2", children=[
+                                            dbc.Progress(value=80, id="animated-progress-2", striped=True,
+                                                         animated="animated", style={"display": "none"})
+                                        ]),
+                                        html.Div(id="import-alert", className="text-danger mt-2")
                                     ]),
                                 ]),
-                                # SELECTED FILES
-                                html.Div(className="col-6", children=[
-                                    dbc.Label(id="selected-files-group-1-t"),
-                                    html.P(id="selected-files-group-1-p"),
-                                    html.Div(className="mb-2", id="animated-progress-1-div", children=[
-                                        dbc.Progress(value=80, id="animated-progress-1", striped=True,
-                                                     animated="animated", style={'display': 'none'})
-                                    ]),
-                                    dbc.Label(id="selected-files-group-2-t"),
-                                    html.P(id="selected-files-group-2-p"),
-                                    html.Div(id="animated-progress-2-div", className="mb-2", children=[
-                                        dbc.Progress(value=80, id="animated-progress-2", striped=True,
-                                                     animated="animated", style={"display": "none"})
-                                    ]),
-                                    html.Div(id="import-alert", className="text-danger mt-2")
+                                # BUTTONS + ALERT MESSAGE
+                                html.Div(children=[
+                                    dbc.Button("Run Decomposition", color="primary", id="run", className="mr-2"),
+                                    dbc.Button("Reset", color="secondary", id="reset"),
+                                    html.Div(id="message-alert", className="text-danger mt-2")
                                 ]),
-                            ]),
-                            # BUTTONS + ALERT MESSAGE
-                            html.Div(children=[
-                                dbc.Button("Run Decomposition", color="primary", id="run", className="mr-2"),
-                                dbc.Button("Reset", color="secondary", id="reset"),
-                                html.Div(id="message-alert", className="text-danger mt-2")
-                            ]),
-                        ]))
+                            ]))
+                        ]),
                     ]),
                 ]),
-            ]),
-            # ########## #
-            # UPLOAD ROW
-            # ########## #
-            html.Div(className="row", id="upload-row", children=[
-                # UPLOAD 1
-                html.Div(className="col-6", id="upload-1-div", children=[
-                    dcc.Upload(id="upload-1", multiple=True)
-                ]),
-                # UPLOAD 2
-                html.Div(className="col-6", id="upload-2-div", children=[
-                    dcc.Upload(id="upload-2", multiple=True)
-                ])
-            ]),
-            # ####### #
-            # CONTENT #
-            # ####### #
-            # TABS = GRAPHS + TABLE 1 + TABLE 2 + LOG
-            dbc.Tabs(children=[
-                # GRAPHS
-                dbc.Tab(label="Graphs", children=[
-                    html.Div(className="row", children=[
-                        # LEFT PANEL = RADAR + SPECTRE + TIMEPLOT
-                        html.Div(className="col-5", children=[
-                            # RADAR
+                # ########### #
+                # RIGHT PANEL #
+                # ########### #
+                html.Div(className="col-9", children=[
+                    # ########## #
+                    # UPLOAD ROW
+                    # ########## #
+                    html.Div(className="row", id="upload-row", children=[
+                        # UPLOAD 1
+                        html.Div(id="upload-1-div", children=[
+                            dcc.Upload(id="upload-1", multiple=True)
+                        ]),
+                        # UPLOAD 2
+                        html.Div(id="upload-2-div", children=[
+                            dcc.Upload(id="upload-2", multiple=True)
+                        ])
+                    ]),
+                    # ####### #
+                    # CONTENT #
+                    # ####### #
+
+                    # TABS = GRAPHS + TABLE 1 + TABLE 2 + LOG
+                    dbc.Tabs(className="mt-3", children=[
+                        # GRAPHS
+                        dbc.Tab(label="Graphs", children=[
+                            # RADAR + SPECTRE + TIMEPLOT
                             html.Div(className="row", children=[
-                                html.Div(className="col-12", children=[
-                                    dcc.Graph(id="radar",
-                                              config=dict(displaylogo=False,
-                                                          toImageButtonOption=dict(
-                                                              width=None, height=None,
-                                                              format="svg", filename="radar")))
+                                # RADAR
+                                html.Div(className="col-6", children=[
+                                    html.Div(children=[
+                                        dcc.Graph(id="radar",
+                                                  config=dict(displaylogo=False,
+                                                              toImageButtonOption=dict(
+                                                                  width=None, height=None,
+                                                                  format="svg", filename="radar")))
+                                    ]),
                                 ]),
-                            ]),
-                            # SPECTRE
-                            html.Div(className="row", children=[
-                                html.Div(className="col-12", children=[
-                                    dcc.Graph(id="spectre",
-                                              config=dict(displaylogo=False,
-                                                          toImageButtonOption=dict(
-                                                              width=None, height=None,
-                                                              format="svg", filename="spectre")))
+                                # SPECTRE
+                                html.Div(className="col-6", children=[
+                                    html.Div(children=[
+                                        dcc.Graph(id="spectre",
+                                                  config=dict(displaylogo=False,
+                                                              toImageButtonOption=dict(
+                                                                  width=None, height=None,
+                                                                  format="svg", filename="spectre")))
+                                    ]),
                                 ]),
                             ]),
                             # TIMEPLOT
-                            html.Div(className="row", children=[
-                                html.Div(className="col-12", children=[
+                            html.Div(children=[
+                                html.Div(children=[
                                     dcc.Graph(id="timeplot",
                                               config=dict(displaylogo=False,
                                                           toImageButtonOption=dict(
@@ -853,8 +889,8 @@ class Dashboard(QWebEngineView):
                                 ]),
                             ]),
                         ]),
-                        # RIGHT PANEL = BRAINS + PROGRESS
-                        html.Div(className="col-7", children=[
+                        # BRAINS
+                        dbc.Tab(label="Cortical Plots", id="brains-tab", children=[
                             # BRAINS
                             html.Div(className="col-12", id="brains"),
                             # PROGRESS
@@ -864,18 +900,18 @@ class Dashboard(QWebEngineView):
                                 dbc.Progress(id="progress", style=dict(width='70%', align='center')),
                             ]),
                         ]),
-                    ]),
-                ]),
-                # TABLE 1
-                dbc.Tab(label="Group A", id="table-1-tab"),
-                # TABLE 2
-                dbc.Tab(label="Group B", disabled=True, id="table-2-tab"),
-                # LOG
-                dbc.Tab(label="Log", id='log-tab', children=[
-                    html.Div(className="col-12", id="log-div", children=[
-                        dcc.Interval(id='log-update', interval=1000),  # interval in milliseconds
-                        html.Div(id='log', children=[
-                            html.P("———— APP START ————"),
+                        # TABLE 1
+                        dbc.Tab(label="Group A", id="table-1-tab"),
+                        # TABLE 2
+                        dbc.Tab(label="Group B", disabled=True, id="table-2-tab"),
+                        # LOG
+                        dbc.Tab(label="Log", id='log-tab', children=[
+                            html.Div(className="col-12", id="log-div", children=[
+                                dcc.Interval(id='log-update', interval=3000),  # interval in milliseconds
+                                html.Div(id='log', children=[
+                                    html.P("———— APP START ————"),
+                                ]),
+                            ]),
                         ]),
                     ]),
                 ]),
