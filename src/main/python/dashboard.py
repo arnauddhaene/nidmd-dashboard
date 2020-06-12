@@ -683,7 +683,7 @@ class Dashboard(QWebEngineView):
                 return ".".join([splat[0], splat[1]])
 
             def _handle_complex(number):
-                splat = [str(number.real), str(number.imag)]
+                splat = [str(number.real), str(np.abs(number.imag))]
                 sett = [_set_precision(splat[0]), _set_precision(splat[1])]
                 return "{0} +/- {1} j".format(sett[0], sett[1])
 
