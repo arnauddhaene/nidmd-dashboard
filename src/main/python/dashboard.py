@@ -547,7 +547,7 @@ class Dashboard(QWebEngineView):
 
                     brains.append(html.Div(children=[
                         dcc.Graph(figure=b.figure(self.imag), config=dict(displaylogo=False,
-                                                                          toImageButtonOption=dict(
+                                                                          toImageButtonOptions=dict(
                                                                               width=None, height=None,
                                                                               format="svg",
                                                                               filename="mode {}".format(mode))))
@@ -862,7 +862,7 @@ class Dashboard(QWebEngineView):
                                     html.Div(children=[
                                         dcc.Graph(id="radar",
                                                   config=dict(displaylogo=False,
-                                                              toImageButtonOption=dict(
+                                                              toImageButtonOptions=dict(
                                                                   width=None, height=None,
                                                                   format="svg", filename="radar")))
                                     ]),
@@ -872,7 +872,7 @@ class Dashboard(QWebEngineView):
                                     html.Div(children=[
                                         dcc.Graph(id="spectre",
                                                   config=dict(displaylogo=False,
-                                                              toImageButtonOption=dict(
+                                                              toImageButtonOptions=dict(
                                                                   width=None, height=None,
                                                                   format="svg", filename="spectre")))
                                     ]),
@@ -883,7 +883,7 @@ class Dashboard(QWebEngineView):
                                 html.Div(children=[
                                     dcc.Graph(id="timeplot",
                                               config=dict(displaylogo=False,
-                                                          toImageButtonOption=dict(
+                                                          toImageButtonOptions=dict(
                                                               width=None, height=None,
                                                               format="svg", filename="timeplot")))
                                 ]),
