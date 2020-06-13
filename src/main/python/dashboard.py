@@ -811,7 +811,7 @@ class Dashboard(QWebEngineView):
                            " that shows the activity of each mode versus time."),
                     html.H5("Number of modes"),
                     html.P("A straightforward parameter. As computation can be heavy for the cortical surface plots, "
-                           "You can decide the first n modes to be visualized. If you want to plot a specific mode, "
+                           "you can decide the first n modes to be visualized. If you want to plot a specific mode, "
                            "please refer to the `nidmd` Python module documentation examples."),
                     html.H5("[Mode Matching] Approximation degree"),
                     html.P("As the top 10 match group modes are approximated using a specific number of modes, "

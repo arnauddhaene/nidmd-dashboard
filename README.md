@@ -5,7 +5,7 @@ Based on [Casorso et al., 2019][2], the dynamic mode decomposition algorithm all
 
 ## Installation
 
-If you have Anaconda installed, skip to "Installation with conda"
+If you have Anaconda installed, skip to *Installation with conda*
 
 First, make sure you have a working installation of Python 3.5, 3.6, or 3.7 (Python 3.8 is not yet supported).
 Run ```python --version``` in your Terminal, which should return your current Python version.
@@ -24,8 +24,8 @@ pip install -r requirements/base.txt
 If you have Anaconda installed, navigate to the project's root folder and run the following commands.
 
 ```
-conda create -n venv python=3.5
-source activate venv
+conda create -n nidmd-env python=3.5
+source activate nidmd-env
 pip install -r requirements/base.txt
 ```
 
@@ -73,13 +73,35 @@ The mode matching setting is a bit more complex. Users are encouraged to read [C
 
 In short, the data from the Match Group is used and modes are matched to the Reference group to allow for a better temporal comparison of the dynamic decomposition.
 
-In this implementation, only the top performing modes (those having the highest damping times) are approximated. The reason for this is the heavy computation of mode matching.
+In this implementation, only the top 10 performing modes (those having the highest damping times) are approximated using an approximation degree explicited below. The reason for this is the heavy computation of mode matching.
+
+### Selection parameters
+
+#### File Selection
+The dashboard accepts either MATLAB or csv files. For MATLAB files, the object corresponding to the last key in the file structure dictionary will be chosen. If everything goes according to plan, the name(s) of your file(s) are displayed just above the selection buttons. Error messages will be displayed under the selection buttons. If anything goes wrong, make sure to also check the log, where a Traceback is always displayed.
+
+#### Sampling Time (seconds)
+Here, you can input the sampling time of your recording. This is used for the visualization that shows the activity of each mode versus time.,
+
+#### Number of modes
+
+A straightforward parameter. As computation can be heavy for the cortical surface plots, you can decide the first n modes to be visualized. If you want to plot a specific mode, please refer to the `nidmd` Python module documentation examples.,
+
+#### (Mode Matching) Approximation degree
+
+As the top 10 match group modes are approximated using a specific number of modes, an approximation degree is introduced that ranges between 0 and 100. This is relative to the percentage of the total modes used for the approximation. For instance, if you want to use the first 50 modes of Schaefer data, 50 / 400 --> approximation degree: 25,
+
+#### Plot imaginary values
+
+It is completely up to you to decide whether or not you wish to plot the imaginary values of the decomposition.
 
 ### Exporting your visualizations
 
 The dashboard is built using Dash by Plotly. Therefore, each figure comes with a toolbar which includes a camera icon. When pressed, a dialog appears and asks users for the location where the image should be saved.
 
 To allow for flexibility after export and to ensure high quality, the images are exported in Scalable Vector Graphics format (`.svg`).
+
+The tabular data visualized is also available to export in `.csv` format using the export button. 
 
 ### Debugging
 
