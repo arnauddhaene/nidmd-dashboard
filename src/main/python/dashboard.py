@@ -21,7 +21,6 @@ from PyQt5 import QtWebEngineWidgets, QtCore, QtWidgets
 
 from nidmd import Decomposition, Brain, Spectre, TimePlot, Radar
 
-
 from utils import *
 
 
@@ -83,11 +82,24 @@ class Dashboard(QWebEngineView):
 
     @QtCore.pyqtSlot("QWebEngineDownloadItem*")
     def on_download_requested(self, download):
-        old_path = download.url().path()  # download.path()
-        suffix = QtCore.QFileInfo(old_path).suffix()
+
+        # Determine file type
+        mime_type = download.mimeType()
+
+        if mime_type == 'image/svg+xml':
+            filename = 'nidmd-visualization'
+            suffix = 'svg'
+        elif mime_type == 'application/octet-stream':
+            filename = 'nidmd-data'
+            suffix = 'csv'
+        else:
+            filename = 'some-error'
+            suffix = ''
+
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save File", old_path, "*.svg" + suffix
+            self, "Save File", '.'.join([filename, suffix]), '.'.join(['*', suffix])
         )
+
         if path:
             download.setPath(path)
             download.accept()
@@ -149,7 +161,7 @@ class Dashboard(QWebEngineView):
                        html.Div(['Group 1: Drag and Drop or ', html.A('Select Files')]), \
                        html.Div(['Group 2: Drag and Drop or ', html.A('Select Files')]), hide
             elif value == 3:  # Matching Modes
-                return style, style, show, show, "Reference Group", "Match Group",  \
+                return style, style, show, show, "Reference Group", "Match Group", \
                        html.Div(['Reference Group: Drag and Drop or ', html.A('Select Files')]), \
                        html.Div(['Match Group: Drag and Drop or ', html.A('Select Files')]), show
 
@@ -171,17 +183,33 @@ class Dashboard(QWebEngineView):
                 return 'Reference', 'Match'
 
         @self.app.callback(
-            Output('help-modal', 'is_open')
-        , [
-            Input('help', 'n_clicks')
-        ], [
-            State('help-modal', 'is_open')
-        ])
-        def toggle_modal(n, open):
-            """ Toggle help modal """
+            Output('help-modal', 'is_open'),
+            [
+                Input('help-general', 'n_clicks')
+            ],
+            [
+                State('help-modal', 'is_open')
+            ]
+        )
+        def toggle_modal_general(n, is_open):
+            """ Toggle general help modal """
             if n:
-                return not open
-            return open
+                return not is_open
+            return is_open
+
+        @self.app.callback(
+            Output('help-modal-selection', 'is_open'),
+            [
+                Input('help-selection', 'n_clicks')
+            ], [
+                State('help-modal-selection', 'is_open')
+            ]
+        )
+        def toggle_modal_selection(n, is_open):
+            """ Toggle selection help modal """
+            if n:
+                return not is_open
+            return is_open
 
         @self.app.callback([
             Output('animated-progress-1', 'style'),
@@ -251,9 +279,10 @@ class Dashboard(QWebEngineView):
                                   padding="0px 5px"),
                 style_data=dict(fontFamily="Helvetica"),
                 style_data_conditional=[{'if': dict(row_index="odd"),  # if is a keyword
-                                        **dict(backgroundColor="rgb(248, 248, 248)")}],
+                                         **dict(backgroundColor="rgb(248, 248, 248)")}],
                 style_as_list_view=True,
-                style_table={'height': '90%', 'overflowY': 'auto'}
+                style_table={'height': '90%', 'overflowY': 'auto'},
+                export_format="csv"
             )
 
             columns = [dict(name='#', id='mode'), dict(name='Value', id='value'),
@@ -266,14 +295,14 @@ class Dashboard(QWebEngineView):
                 try:
 
                     if contents1 is not None:
-
                         logging.info("Adding contents to {}.".format("Group 1" if setting == 2 else "Reference Group"))
 
                         self.dcp1 = _parse_files(contents1, names1, float(time))
                         self.dcp1.run()
                         df1 = self.dcp1.df[['mode', 'value', 'damping_time', 'period']]
 
-                        logging.info("Creating Data Table for {}.".format("Group 1" if setting == 2 else "Reference Group"))
+                        logging.info(
+                            "Creating Data Table for {}.".format("Group 1" if setting == 2 else "Reference Group"))
 
                         tab1 = _create_table(df1, id="table-1", columns=columns, config=table_config)
 
@@ -303,8 +332,9 @@ class Dashboard(QWebEngineView):
 
                                     no_modes = int(approx_deg / 100.0 * self.match_group.atlas.size)
 
-                                    self.match_df, self.match_x, self.match_y = self.dcp1.compute_match(self.match_group,
-                                                                                                         no_modes)
+                                    self.match_df, self.match_x, self.match_y = self.dcp1.compute_match(
+                                        self.match_group,
+                                        no_modes)
                                     match_df = self.match_df.copy()
 
                                     tab2 = _create_table(match_df, id="table-2", columns=columns, config=table_config)
@@ -334,9 +364,9 @@ class Dashboard(QWebEngineView):
 
         @self.app.callback(
             Output('imag-setting', 'options')
-        , [
-            Input('imag-setting', 'value')
-        ])
+            , [
+                Input('imag-setting', 'value')
+            ])
         def imag_switch(switch):
             """ Switch between displaying and not displaying imaginary values. """
 
@@ -402,7 +432,6 @@ class Dashboard(QWebEngineView):
                 message += "Check log for more info."
             else:
                 self.valid = True
-                collapse_open = True
 
             hide = dict(display="none")
 
@@ -434,12 +463,11 @@ class Dashboard(QWebEngineView):
 
         @self.app.callback(
             Output('spectre', 'figure')
-        ,[
-            Input('run', 'n_clicks')
-        ], [
-            State('number-of-modes', 'value')
-        ])
-        def compute_spectre(n, nom):
+            , [
+                Input('run', 'n_clicks')
+            ]
+        )
+        def compute_spectre(n):
             """
             Compute Spectre figure
 
@@ -469,8 +497,8 @@ class Dashboard(QWebEngineView):
             , [
                 Input('run', 'n_clicks')
             ], [
-            State('number-of-modes', 'value')
-        ])
+                State('number-of-modes', 'value')
+            ])
         def compute_timeplot(n, nom):
             """
             Compute Timeplot figure
@@ -491,11 +519,11 @@ class Dashboard(QWebEngineView):
 
         @self.app.callback(
             Output('radar', 'figure')
-        , [
-            Input('run', 'n_clicks')
-        ], [
-            State('number-of-modes', 'value')
-        ])
+            , [
+                Input('run', 'n_clicks')
+            ], [
+                State('number-of-modes', 'value')
+            ])
         def compute_radar(n, nom):
             """
             Compute Radar figure
@@ -542,7 +570,6 @@ class Dashboard(QWebEngineView):
                 self.progress += 10.0
 
                 for mode in range(1, nom + 1):
-
                     b = Brain(*_filter_brain(mode))
 
                     brains.append(html.Div(children=[
@@ -595,20 +622,40 @@ class Dashboard(QWebEngineView):
 
             for content, name in zip(contents, files):
 
-                _, string = content.split(',')
+                d = None
 
-                mat = io.BytesIO(base64.b64decode(string))
+                if Path(name).suffix == '.mat':
 
-                matfile = sio.loadmat(mat)
+                    _, string = content.split(',')
 
-                for key in matfile.keys():
-                    if key[:2] != '__':
-                        d = matfile[key]
-                        logging.info("Extracted matrix from file {} from key {}".format(name, key))
-                        continue
+                    mat = io.BytesIO(base64.b64decode(string))
 
-                if d is None:
-                    logging.error("Invalid .mat file, no matrices inside.")
+                    matfile = sio.loadmat(mat)
+
+                    for key in matfile.keys():
+                        if key[:2] != '__':
+                            d = matfile[key]
+                            logging.info("Extracted matrix from file {} from key {}".format(name, key))
+                            continue
+
+                    if d is None:
+                        logging.error("Invalid .mat file, no matrices inside.")
+                        raise ImportError("Invalid .mat file, no matrices inside.")
+
+                elif Path(name).suffix == '.csv':
+
+                    _, content_string = content.split(',')
+
+                    decoded = base64.b64decode(content_string)
+
+                    d = np.genfromtxt(
+                        io.StringIO(decoded.decode('utf-8')),
+                        delimiter=","
+                    )
+
+                    if d is None:
+                        logging.error("Problem reading the csv file.")
+                        raise ImportError("Problem reading the csv file.")
 
                 data.append(d)
 
@@ -748,6 +795,36 @@ class Dashboard(QWebEngineView):
                             me directly by email: arnaud.dhaene@epfl.ch", className="mt-5")
                 ]),
             ]),
+            dbc.Modal(id="help-modal-selection", is_open=False, children=[
+                dbc.ModalHeader("Welcome to the Selection toolbar!"),
+                dbc.ModalBody(children=[
+                    html.P("This is where you can input all the parameters for the decomposition visualization."),
+                    html.H5("File Selection"),
+                    html.P("The dashboard accepts either MATLAB or csv files. For MATLAB files, the object "
+                           "corresponding to the last key in the file structure dictionary will be chosen. "
+                           "If everything goes according to plan, the name(s) of your file(s) are displayed just above "
+                           "the selection buttons. "
+                           "Error messages will be displayed under the selection buttons. If anything goes wrong, "
+                           "make sure to also check the log, where a Traceback is always displayed."),
+                    html.H5("Sampling Time (seconds)"),
+                    html.P("Here, you can input the sampling time of your recording. This is used for the visualization"
+                           " that shows the activity of each mode versus time."),
+                    html.H5("Number of modes"),
+                    html.P("A straightforward parameter. As computation can be heavy for the cortical surface plots, "
+                           "You can decide the first n modes to be visualized. If you want to plot a specific mode, "
+                           "please refer to the `nidmd` Python module documentation examples."),
+                    html.H5("[Mode Matching] Approximation degree"),
+                    html.P("As the top 10 match group modes are approximated using a specific number of modes, "
+                           "an approximation degree is introduced that ranges between 0 and 100. This is relative "
+                           "to the percentage of the total modes used for the approximation. For instance, if you want "
+                           "to use the first 50 modes of Schaefer data, 50 / 400 --> approximation degree: 25"),
+                    html.H5("Plot imaginary values"),
+                    html.P("It is completely up to you to decide whether or not you wish to plot the imaginary values "
+                           "of the decomposition."),
+                    html.P("If you have any questions, do not hesitate to open an issue on the Github repository or "
+                           "contact me directly by email: arnaud.dhaene@epfl.ch", className="mt-5")
+                ]),
+            ]),
             html.Div(className="row", children=[
                 # ########### #
                 # RIGHT PANEL #
@@ -765,15 +842,16 @@ class Dashboard(QWebEngineView):
                                 html.P("Access a short description of the dashboard by clicking on 'Help'. \
                                         A more detailed description can be found in the repository's README."),
                                 # DESCRIPTION
-                                dbc.Button("Help", id="help", className="ml-auto"),
+                                dbc.Button("Help", id="help-general", className="mr-2"),
+                                dbc.Button("Reset", color="primary", id="reset"),
                             ]),
                             dbc.Col(className="ml-5 mt-4", children=[
                                 # SETTING
                                 dbc.Label("Setting", className="mt-2"),
                                 dbc.RadioItems(id="setting", options=[
-                                        {"label": "Analysis", "value": 1},
-                                        {"label": "Comparison", "value": 2},
-                                        {"label": "Mode Matching", "value": 3}
+                                    {"label": "Analysis", "value": 1},
+                                    {"label": "Comparison", "value": 2},
+                                    {"label": "Mode Matching", "value": 3}
                                 ])
                             ])
                         ])
@@ -822,8 +900,8 @@ class Dashboard(QWebEngineView):
                                 ]),
                                 # BUTTONS + ALERT MESSAGE
                                 html.Div(children=[
-                                    dbc.Button("Run Decomposition", color="primary", id="run", className="mr-2"),
-                                    dbc.Button("Reset", color="secondary", id="reset"),
+                                    dbc.Button("Help", id="help-selection", className="mr-2"),
+                                    dbc.Button("Run", color="primary", id="run", className="mr-2"),
                                     html.Div(id="message-alert", className="text-danger mt-2")
                                 ]),
                             ]))
@@ -906,12 +984,14 @@ class Dashboard(QWebEngineView):
                         dbc.Tab(label="Group B", disabled=True, id="table-2-tab"),
                         # LOG
                         dbc.Tab(label="Log", id='log-tab', children=[
-                            html.Div(className="col-12", id="log-div", children=[
-                                dcc.Interval(id='log-update', interval=3000),  # interval in milliseconds
-                                html.Div(id='log', children=[
-                                    html.P("———— APP START ————"),
-                                ]),
-                            ]),
+                            html.Div(className="col-12", id="log-div", style=dict(overflow='scroll',
+                                                                                  height='90vh'),
+                                     children=[
+                                         dcc.Interval(id='log-update', interval=3000),  # interval in milliseconds
+                                         html.Div(id='log', children=[
+                                             html.P("———— APP START ————"),
+                                         ]),
+                                     ]),
                         ]),
                     ]),
                 ]),

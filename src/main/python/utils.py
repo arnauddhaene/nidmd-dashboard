@@ -5,7 +5,7 @@ from pathlib import *
 # Directories
 
 # Absolute path to dmd directory (where `fbs run` should be launched)
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = Path(__file__).parent.parent.parent.parent
 # Resource directory
 RES_DIR = ROOT_DIR.joinpath('src/main/resources')
 # Target directory for file output
