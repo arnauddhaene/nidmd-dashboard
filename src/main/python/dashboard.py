@@ -769,7 +769,7 @@ class Dashboard(QWebEngineView):
 
         logging.info("Setting Application Layout")
 
-        return html.Div(id="app-layout", children=[
+        return html.Div(id="app-layout", style=dict(maxWidth='95vw'), children=[
             dbc.Modal(id="help-modal", is_open=True, children=[
                 dbc.ModalHeader("Welcome to the Dynamic Mode Decomposition Dashboard!"),
                 dbc.ModalBody(children=[
