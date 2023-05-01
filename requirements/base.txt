@@ -6,7 +6,7 @@ dash-html-components==1.0.3
 dash-renderer==1.4.0
 dash-table==4.6.2
 fbs==0.8.6
-Flask==1.1.2
+Flask==2.3.2
 Flask-Caching==1.8.0
 Flask-Compress==1.4.0
 matplotlib==3.0.3
